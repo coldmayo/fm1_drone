@@ -719,8 +719,10 @@ static __attribute__((noinline, cold, minsize)) void fm_draw(const uint8_t patch
         cache->middle_shape = shape;
         paint_fill(0, 72, 240, 108, BACK);
         if (page == FM_ENV) {
-            text(8, 80, controls->enabled ? "ADSR ON" : "ADSR OFF", 1, GREEN, BACK);
-            text(8, 95, controls->enabled ? "AMPLITUDE SHAPE" : "PREVIEW / BYPASSED", 1, DIM, BACK);
+            static const char *const mode_name[] = {"ADSR OFF", "ADSR ON", "ADSR + DRONE"};
+            static const char *const mode_sub[]  = {"PREVIEW / BYPASSED", "AMPLITUDE SHAPE", "KEY-UP LATCHED"};
+            text(8, 80, mode_name[controls->enabled], 1, GREEN, BACK);
+            text(8, 95, mode_sub[controls->enabled], 1, DIM, BACK);
             /* Match adsr_config_set's millisecond/level mapping. Sustain has
              * an illustrative 400 ms hold; it lasts until the key is released. */
             unsigned a = 8U * controls->envelope[0], d = 100U + 8U * controls->envelope[1];
@@ -1562,7 +1564,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
                        : visible == MIX      ? "KEYS MUTE/SOLO  GLO / HOME BACK"
                        : visible == FM_EDIT  ? "BLACK OP  SELECT PAGE  EDIT BACK"
                        : visible == FM_ENV && v->type != GROOVE_DX7 ? "ENV BACK  SELECT TRACK"
-                       : visible == FM_ENV   ? "PRESETS ENV ON/OFF  HOME TRACKS"
+                       : visible == FM_ENV   ? "PRESETS ENV MODE  HOME TRACKS"
                        : visible == TONE_EDIT && !advanced_edit
                            ? "HOLD EDIT MORE  SELECT TRACK"
                            : "SEL PAGE  HOME TRACKS";
@@ -2473,7 +2475,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                     }
                 }
                 if (page == FM_ENV && groove_source_type(track) == GROOVE_DX7 && controls->encoders[6])
-                    groove_adsr_enable(track, controls->encoders[6] > 0);
+                    groove_adsr_step(track, controls->encoders[6] > 0 ? 1 : -1);
                 if (controls->encoders[6] && page != ARP_EDIT && page != STEPS && page != FM_ENV && page != FM_LFO && page != EFFECTS && page != NAME && !(page == TONE_EDIT && groove_pad_count(track) != 0))
                     groove_control_edit(track, controls->encoders[6], 0, 0);
                 if (controls->encoders[1] && page != STEPS && page != ARP_EDIT) {
@@ -2807,8 +2809,10 @@ const void *groove_screen_web_targets(void)
         web_target(101, 178, 56, 15, 4, 0, track, "VOICE MODE", controls.mono, controls.mono ? "MONO" : "POLY");
         if (page == FM_EDIT && op < 7)
             web_target(198, 31, 34, 17, 6, 0, track, "PARAMETER PAGE", operator_page[track][op] + 1, NULL);
-        if (page == FM_ENV)
-            web_target(6, 76, 65, 17, 5, 0, track, "ADSR", controls.enabled, controls.enabled ? "ON" : "OFF");
+        if (page == FM_ENV) {
+            static const char *const m[] = {"OFF","ON","DRONE"};
+            web_target(6, 76, 65, 17, 5, 0, track, "ADSR", controls.enabled, m[controls.enabled]);
+        }
         if (page == FM_LFO) {
             static const char *const waves[] = {"TRI", "SAW DOWN", "SAW UP", "SQUARE", "SINE", "S/HOLD"};
             web_target(6, 106, 180, 22, 3, 142, track, "LFO WAVE", patch[142], waves[patch[142] % 6]);
@@ -2853,7 +2857,7 @@ int groove_screen_web_adjust(unsigned context, unsigned action, unsigned index, 
     else if (action == 2) groove_control_edit(owner, 0, delta, 0);
     else if (action == 3) groove_fm_edit(owner, index, delta);
     else if (action == 4) groove_mono_set(owner, delta > 0);
-    else if (action == 5) groove_adsr_enable(owner, delta > 0);
+    else if (action == 5) groove_adsr_step(owner, delta > 0 ? 1 : -1);
     else if (action == 7) {
         struct groove_view v; groove_get_view(owner, cursor, &v);
         if ((index ? v.solo : v.muted) != (unsigned)(delta > 0)) groove_mix_toggle(owner, index);

@@ -12,9 +12,19 @@ typedef struct {
     uint32_t time_in_state; /* Q32 progress, reset at each stage */
     bool is_held;
     int32_t level_record;
+    bool drone;
 } AdsrEnvelope;
-typedef struct { uint32_t attack, decay; int32_t sustain; uint32_t release; u8 enabled; } t_dx7_adsr_config;
-void adsr_config_set(t_dx7_adsr_config *, u8, u8, u8, u8, u8, uint32_t sample_rate);
+
+typedef struct { 
+    uint32_t attack, decay; 
+    int32_t sustain; 
+    uint32_t release; 
+    u8 enabled;
+    u8 drone;
+} t_dx7_adsr_config;
+
+void adsr_config_set(t_dx7_adsr_config *, u8, u8, u8, u8, u8, uint32_t sample_rate, bool drone);
+void adsr_release_now(AdsrEnvelope *);
 void adsr_init(AdsrEnvelope *, const t_dx7_adsr_config *);
 void adsr_note_off(AdsrEnvelope *);
 int32_t adsr_update(AdsrEnvelope *, u8 enabled);

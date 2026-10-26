@@ -264,7 +264,7 @@ void groove_effects_restore(const uint8_t values[4]); /* audio gate held */
 int groove_fm_copy(unsigned track, uint8_t patch[156], struct groove_fm_controls *controls);
 void groove_fm_edit(unsigned track, unsigned parameter, int delta);
 void groove_adsr_edit(unsigned track, unsigned parameter, int delta);
-void groove_adsr_enable(unsigned track, int enabled);
+void groove_adsr_step(unsigned track, int dir);
 void groove_operator_toggle(unsigned track, unsigned op);
 void groove_mono_set(unsigned track, unsigned mono);
 unsigned groove_key_note(unsigned track, unsigned key, int octave);
