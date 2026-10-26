@@ -168,7 +168,7 @@ static void init_instance(t_dx7synth *this, void *allocation,
     this->ctrl.aftertouch.pitchswitch = 1;
 
 
-    adsr_config_set(&this->adsr, 0, 0, 0, 0, 0, fs);
+    adsr_config_set(&this->adsr, 0, 0, 0, 0, 0, fs, 0);
     this->mute_fade_step = 0;
     this->fade_samples = DSP_MAX((int)fs / 100, 1);
     this->fade_whole = FM_Q30_ONE / this->fade_samples;
@@ -268,6 +268,12 @@ FM1_DSP_CODE static inline int allocatenote(t_dx7synth *this) {
     return chosen;
 }
 
+FM1_DSP_CODE static void note_release(t_note *n, int force) {
+    if (n->env.drone && !force) return;
+    dx7note_keyup(&n->dx7note);
+    adsr_release_now(&n->env);
+}
+
 FM1_DSP_CODE static void dx7synth_keyup(t_dx7synth *this,u8 *patch,u8 midi,u8 channel)
 {
     (void)patch;
@@ -299,14 +305,23 @@ FM1_DSP_CODE static void dx7synth_keyup(t_dx7synth *this,u8 *patch,u8 midi,u8 ch
     }
     if(this->sustain) this->note[note].sustained = true;
     else  {
-        dx7note_keyup(&this->note[note].dx7note);
-        adsr_note_off(&this->note[note].env);
+        note_release(&this->note[note], 0);
     }
+}
+
+/* Drone voices hold at L2 instead of sliding to L3. */
+FM1_DSP_CODE static u8 *drone_patch(const t_dx7synth *this, u8 *patch, u8 tmp[156]) {
+    if (!this->adsr.drone) return patch;
+    memcpy(tmp, patch, 156);
+    for (unsigned op = 0; op < 6; ++op)
+        tmp[op * 21 + 6] = tmp[op * 21 + 5];      /* L3 = L2 */
+    return tmp;
 }
 
 FM1_DSP_CODE static void dx7synth_keydown(t_dx7synth *this,u8 *patch,u8 midi,u8 channel,u8 vel,int cents)
 {
     int pitch = midi + patch[144] - 24;
+
     if(pitch >= 0 && pitch <= 127){
         /* A poly/mono change fades the old voice set before retiring it.
          * If a new Note On arrives during that short transition, finish the
@@ -328,7 +343,8 @@ FM1_DSP_CODE static void dx7synth_keydown(t_dx7synth *this,u8 *patch,u8 midi,u8 
         this->note[note].keydown = true;
         this->note[note].sustained = this->sustain;
 
-        dx7note_init(&this->note[note].dx7note,patch,pitch,(vel*100)>>7,cents);
+        u8 tmp[156];
+        dx7note_init(&this->note[note].dx7note, drone_patch(this, patch, tmp), pitch, (vel*100)>>7, cents);
         if(patch[136]) dx7note_oscsync(&this->note[note].dx7note);
 
         adsr_init(&this->note[note].env, &this->adsr);
@@ -620,6 +636,7 @@ FM1_DSP_CODE void synth_dx7_all_notes_off(synth_dx7_t *handle)
         this->note[note].keydown = 0U;
         this->note[note].sustained = 0U;
     }
+    note_release(&this->note[note], 1);
 }
 
 FM1_DSP_CODE void synth_dx7_set_pitch_bend_range(synth_dx7_t *handle,
@@ -650,11 +667,16 @@ FM1_DSP_CODE void synth_dx7_set_operator_mask(synth_dx7_t *handle, uint8_t mask)
     this->ctrl.opswitch = mask & 0x3f;
 }
 
-FM1_DSP_CODE void synth_dx7_set_adsr(synth_dx7_t *handle, uint8_t enabled,
-                        uint8_t attack, uint8_t decay,
-                        uint8_t sustain, uint8_t release)
-{
+FM1_DSP_CODE void synth_dx7_set_adsr(synth_dx7_t *handle, uint8_t enabled, uint8_t attack, uint8_t decay, uint8_t sustain, uint8_t release, uint8_t drone) {
     t_dx7synth *this = handle;
     if (this == NULL) return;
-    adsr_config_set(&this->adsr, enabled, attack, decay, sustain, release, (uint32_t)this->fs);
+    const u8 was_drone = this->adsr.drone;
+    adsr_config_set(&this->adsr, enabled, attack, decay, sustain, release, (uint32_t)this->fs, drone != 0U);
+    if (was_drone && !this->adsr.drone) {
+        for (int i = 0; i < this->maxnote; ++i) {
+            t_note *n = &this->note[i];
+            n->env.drone = false;   /* keys still held now release normally */
+            if (n->live && !n->keydown && !n->sustained) note_release(n, 1);
+        }
+    }
 }

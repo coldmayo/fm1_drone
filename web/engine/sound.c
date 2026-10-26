@@ -747,7 +747,7 @@ static FM1_DSP_CODE unsigned message(unsigned track, const uint8_t *m, size_t n)
             tracks[track].controls.envelope[2] = 100;
             if (sources[track].fm) {
                 synth_dx7_set_operator_mask(sources[track].fm, 63);
-                synth_dx7_set_adsr(sources[track].fm, 0, 0, 0, 100, 0);
+                synth_dx7_set_adsr(sources[track].fm, 0, 0, 0, 100, 0, 0);
                 synth_dx7_set_poly_mode(sources[track].fm, 0);
                 synth_dx7_lfo_reset(sources[track].fm, sources[track].patch);
             }
@@ -1547,7 +1547,7 @@ __attribute__((cold, minsize)) int groove_fm_import(unsigned track, const uint8_
             tracks[track].controls.operators |= (uint8_t)(1U << i);
     synth_dx7_set_operator_mask(sources[track].fm, patch[155]);
     synth_dx7_set_poly_mode(sources[track].fm, 0);
-    synth_dx7_set_adsr(sources[track].fm, 0, 0, 0, 100, 0);
+    synth_dx7_set_adsr(sources[track].fm, 0, 0, 0, 100, 0, 0);
     synth_dx7_lfo_reset(sources[track].fm, sources[track].patch);
     tracks[track].modified = 1;
     status[track].edit_dirty = 1;
@@ -1618,12 +1618,10 @@ __attribute__((cold, minsize)) void groove_lfo_edit(unsigned track, unsigned par
     publish(track, 0);
     fm1_web_resume();
 }
-static void adsr_apply(unsigned track)
-{
+static void adsr_apply(unsigned track) {
     const struct groove_fm_controls *c = &tracks[track].controls;
     if (sources[track].fm)
-        synth_dx7_set_adsr(sources[track].fm, c->enabled, c->envelope[0], c->envelope[1],
-                           c->envelope[2], c->envelope[3]);
+        synth_dx7_set_adsr(sources[track].fm, c->enabled != 0, c->envelope[0], c->envelope[1], c->envelope[2], c->envelope[3], c->enabled == 2);
     tracks[track].modified = 1;
     status[track].edit_dirty = 1;
     publish(track, 0);
@@ -1642,7 +1640,7 @@ __attribute__((cold, minsize)) void groove_adsr_edit(unsigned track, unsigned pa
         tracks[track].controls.envelope[parameter] = (uint8_t)value;
         /* Turning an envelope control is enough to hear it. Browsing ENV
          * leaves the original DX7 envelope intact; PRESETS can bypass it. */
-        tracks[track].controls.enabled = 1;
+        if (!tracks[track].controls.enabled) tracks[track].controls.enabled = 1;
         adsr_apply(track);
     }
     fm1_web_resume();
@@ -1804,7 +1802,7 @@ __attribute__((cold, minsize)) int groove_project_valid(const struct groove_proj
         const struct groove_fm_controls *c = &v->controls;
         unsigned type = v->type;
         if ((p->arp[t][1] & 63U) > 50 ||
-            type >= GROOVE_SOURCES || v->volume > 127 || v->modified > 1 || c->enabled > 1 ||
+            type >= GROOVE_SOURCES || v->volume > 127 || v->modified > 1 || c->enabled > (type == GROOVE_DX7 ? 2 : 1) ||
             v->sequence_pages > 3 ||
             v->sampler_pads != (type == GROOVE_SAMPLE ? SAMPLE_DRUM_PADS : 0) ||
             c->operators > 63 || c->mono > 1 ||
@@ -1916,8 +1914,7 @@ static __attribute__((cold, minsize)) void preset_apply(struct source *s, const 
         synth_dx7_set_operator_mask(s->fm, (uint8_t)mask);
         s->patch[155] = (uint8_t)mask;
         synth_dx7_set_poly_mode(s->fm, c->mono);
-        synth_dx7_set_adsr(s->fm, c->enabled, c->envelope[0], c->envelope[1], c->envelope[2],
-                           c->envelope[3]);
+        synth_dx7_set_adsr(s->fm, c->enabled != 0, c->envelope[0], c->envelope[1], c->envelope[2], c->envelope[3], c->enabled == 2);
         synth_dx7_lfo_reset(s->fm, s->patch);
     } else if (p->type == GROOVE_808) {
         (void)drum808_kit_load(s->drums, p->data);
@@ -2093,6 +2090,19 @@ __attribute__((cold, minsize)) static int project_apply(const struct groove_proj
     edit_snapshot.track = ~0U;
     fm1_web_resume();
     return 0;
+}
+__attribute__((cold, minsize)) void groove_adsr_step(unsigned track, int dir){
+    if (groove_track_role(track) == GROOVE_TRACK_OFF) return;
+    if (groove_source_type(track) != GROOVE_DX7) return;
+    int mode = (int)tracks[track].controls.enabled + (dir > 0 ? 1 : -1);
+    if (mode < 0 || mode > 2) return;
+    fm1_web_pause();
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x98000U + track);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
+    groove_lock_restore(track);
+    tracks[track].controls.enabled = (uint8_t)mode;
+    adsr_apply(track);
+    fm1_web_resume();
 }
 int groove_project_apply(const struct groove_project *p)
 {

@@ -10,7 +10,7 @@ static uint32_t increment(uint32_t rate, unsigned ms)
     uint64_t step = (UINT64_C(4294967296) + samples / 2) / samples;
     return step > UINT32_MAX ? UINT32_MAX : (uint32_t)step;
 }
-FM1_DSP_CODE void adsr_config_set(t_dx7_adsr_config *c, u8 enabled, u8 a, u8 d, u8 s, u8 r, uint32_t rate)
+FM1_DSP_CODE void adsr_config_set(t_dx7_adsr_config *c, u8 enabled, u8 a, u8 d, u8 s, u8 r, uint32_t rate, bool drone)
 {
     if (a > 100) a = 100;
     if (d > 100) d = 100;
@@ -21,18 +21,29 @@ FM1_DSP_CODE void adsr_config_set(t_dx7_adsr_config *c, u8 enabled, u8 a, u8 d, 
     c->release = increment(rate, 100U + 19U * r);
     c->sustain = (int32_t)((int64_t)(100U + 7U * s) * FM_Q30_ONE / 1000);
     c->enabled = enabled != 0;
+    c->drone = (enabled != 0) && drone;
 }
 FM1_DSP_CODE void adsr_init(AdsrEnvelope *e, const t_dx7_adsr_config *c)
 {
     e->attack=c->attack; e->decay=c->decay; e->sustain=c->sustain; e->release=c->release;
     e->state=ADSR_STATE_ATTACK; e->current_level=e->level_record=0;
     e->time_in_state=0; e->is_held=true;
+    e->drone = c->drone;
+}
+FM1_DSP_CODE void adsr_release_now(AdsrEnvelope *e) {
+    e->is_held = false;
+    if (e->state != ADSR_STATE_IDLE) {
+        e->state = ADSR_STATE_RELEASE;
+        e->time_in_state = 0;
+        e->level_record = e->current_level;
+    }
 }
 FM1_DSP_CODE void adsr_note_off(AdsrEnvelope *e)
 {
-    e->is_held=false;
-    if(e->state!=ADSR_STATE_IDLE){e->state=ADSR_STATE_RELEASE;e->time_in_state=0;e->level_record=e->current_level;}
+    if (e->drone) return;
+    adsr_release_now(e);
 }
+
 FM1_DSP_CODE int32_t adsr_update(AdsrEnvelope *e, u8 enabled)
 {
     if(!enabled)return FM_Q30_ONE;

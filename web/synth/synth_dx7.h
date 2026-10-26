@@ -70,7 +70,8 @@ void synth_dx7_set_adsr(synth_dx7_t *synth,
                         uint8_t attack,
                         uint8_t decay,
                         uint8_t sustain,
-                        uint8_t release);
+                        uint8_t release,
+                        uint8_t drone);
 
 /* Audio owner only. 1..allocated capacity; released voices retire first.
  * Returns the number retired. Future notes obey the limit; reset restores capacity. */
